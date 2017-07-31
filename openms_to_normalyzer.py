@@ -28,7 +28,7 @@ def main():
 
     print("Writing dataframe with shape {}, {} samples to {}"
           .format(normalyzer_df.shape, len(sample_numbers), args.output))
-    normalyzer_df.to_csv(args.output, sep=args.delim_out, header=False, index=False)
+    normalyzer_df.to_csv(args.output, sep=args.delim_out, header=False, index=False, na_rep='NA')
     print("Done!")
 
 
@@ -57,7 +57,7 @@ def get_sample_numbers(cons_df):
     return sample_nbrs
 
 
-def setup_normalyzer_df(cons_df, sample_numbers, annot_cols, sample_cols):
+def setup_normalyzer_df(cons_df, sample_numbers, annot_cols, sample_cols, nan_fill='NA'):
 
     target_sample_cols = list()
     for sample in sample_numbers:
@@ -72,7 +72,9 @@ def setup_normalyzer_df(cons_df, sample_numbers, annot_cols, sample_cols):
     sample_head = [-1] + [0] * (len(target_annot_cols)-1) + [1] * len(target_sample_cols)
     sample_head_str = [str(e) for e in sample_head]
 
-    normalyzer_vals = pd.DataFrame(cons_df[target_annot_cols + target_sample_cols].applymap(str))
+    normalyzer_vals = pd.DataFrame(cons_df[target_annot_cols + target_sample_cols].fillna(nan_fill).applymap(str))
+    # normalyzer_vals_na = normalyzer_vals
+
     headers = pd.DataFrame([sample_head_str, list(normalyzer_vals.columns)])
     headers.columns = normalyzer_vals.columns
     normalyzer_df = pd.concat([headers, normalyzer_vals])
