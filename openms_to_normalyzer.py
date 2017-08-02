@@ -1,28 +1,29 @@
 #!/usr/bin/env python3
 
+from typing import List, Set
+
 import argparse
 import pandas as pd
+import numpy as np
 
-JOINT_COLS = ['rt', 'mz', 'intensity', 'charge', 'quality']
+DF = pd.DataFrame
+
+JOINT_COLS = ['#rt', 'mz', 'intensity', 'charge', 'quality']
 SAMPLE_COLS = ['intensity']
-
-VERSION = '1.0.0'
+ANNOT_COLS = ['peptide_0', 'protein_0']
+VERSION = '2.0.0'
 
 
 def main():
 
     args = parse_arguments()
 
-    cons_lines = get_consensus_lines(args.input)
-    cons_fp = '{}.cons_only'.format(args.input)
-    generate_consensus_intermediate(cons_fp, cons_lines)
-
-    ms_df = pd.read_csv(cons_fp, sep=args.delim_in)
-    print(ms_df.head())
-
+    ms_df = pd.read_csv(args.input, sep=args.delim_in, skiprows=2)
     design_matrix = pd.read_csv(args.design, sep="\s+")
+    normalyzer_df = setup_normalyzer_df(ms_df, design_matrix, require_annot=args.require_annot)
 
-    normalyzer_df = setup_normalyzer_df(ms_df, design_matrix)
+    # if args.require_annot:
+    #     normalyzer_df = normalyzer_df.loc[normalyzer_df['peptide_0'] != np.nan]
 
     print("Writing dataframe with shape {}, to {}"
           .format(normalyzer_df.shape, args.output))
@@ -30,40 +31,7 @@ def main():
     print("Done!")
 
 
-def get_consensus_lines(in_fp):
-
-    """Extract consensus lines from raw OpenMS file"""
-
-    cons_lines = list()
-    with open(in_fp) as in_fh:
-        for line in in_fh:
-            line = line.rstrip()
-            if line.startswith('CONSENSUS') or line.startswith('#CONSENSUS'):
-                cons_lines.append(line)
-    return cons_lines
-
-
-def generate_consensus_intermediate(cons_fp, cons_lines):
-
-    """Extract consensus rows from OpenMS file and write to new file"""
-
-    print('TODO: Omit intermediate file')
-
-    with open(cons_fp, 'w') as out_fh:
-        for line in cons_lines:
-            print(line, file=out_fh)
-
-
-def get_sample_numbers(cons_df):
-
-    """Extract sample numbers from OpenMS header"""
-
-    all_cols = list(cons_df.columns)
-    sample_nbrs = set([int(col.split('_')[-1]) for col in all_cols[1:] if not col.endswith('cf')])
-    return sample_nbrs
-
-
-def setup_normalyzer_df(ms_df, design_matrix, nan_fill='NA'):
+def setup_normalyzer_df(ms_df: DF, design_matrix: DF, require_annot=False, nan_fill='NA') -> DF:
 
     """
     Setup Normalyzer dataframe. The dataframe consists of two-row header, and databody
@@ -75,13 +43,16 @@ def setup_normalyzer_df(ms_df, design_matrix, nan_fill='NA'):
 
     normalyzer_vals = pd.DataFrame(ms_df[target_annot_cols + target_sample_cols].fillna(nan_fill).applymap(str))
 
+    if require_annot:
+        normalyzer_vals = normalyzer_vals.loc[normalyzer_vals['peptide_0'] != nan_fill]
+
     headers = setup_normalyzer_header(design_matrix, target_annot_cols, normalyzer_vals)
-    normalyzer_df = pd.concat([headers, normalyzer_vals])
+    normalyzer_df = headers.append(normalyzer_vals)
 
     return normalyzer_df
 
 
-def get_sample_colnames(ms_df):
+def get_sample_colnames(ms_df: DF) -> List[str]:
 
     """
     Generate names for sample columns
@@ -96,28 +67,43 @@ def get_sample_colnames(ms_df):
     return target_sample_cols
 
 
-def get_annot_colnames():
+def get_sample_numbers(cons_df: pd.DataFrame) -> Set[int]:
+
+    """Extract sample numbers from OpenMS header"""
+
+    all_cols = list(cons_df.columns)
+    sample_nbrs = set([int(col.split('_')[-1]) for col in all_cols[1:] if not col.endswith('cf')])
+    return sample_nbrs
+
+
+def get_annot_colnames() -> List[str]:
 
     """
     Retrieve names for OpenMS columns
     """
 
     target_annot_cols = list()
+
     for col in JOINT_COLS:
         target_annot_cols.append('{}_{}'.format(col, 'cf'))
+
+    target_annot_cols += ANNOT_COLS
+
     return target_annot_cols
 
 
-def setup_normalyzer_header(design_matrix, target_annot_cols, normalyzer_vals):
+def setup_normalyzer_header(design_matrix: DF, annot_cols: List[str], normalyzer_vals:DF) -> DF:
 
     """
     Setup two top rows in Normalyzer matrix
     """
 
-    sample_head = [-1] + [0] * (len(target_annot_cols)-1) + list(design_matrix['biorep'])
+    # Get numbers set up as list of stringified numbers ('-1', '0', '0', '1', '1')
+    nbr_annot_cols = len(annot_cols)
+    sample_head = [-1] + [0] * (nbr_annot_cols - 1) + list(design_matrix['biorepgroup'])
     sample_head_str = [str(e) for e in sample_head]
 
-    nbr_annot_cols = len(target_annot_cols)
+    # Get text-information about each column
     label_row = list(normalyzer_vals.columns)[:nbr_annot_cols] + list(design_matrix['name'])
 
     headers = pd.DataFrame([sample_head_str, label_row])
@@ -133,6 +119,9 @@ def parse_arguments():
     parser.add_argument('-i', '--input', help='OpenMS TSV report', required=True)
     parser.add_argument('-o', '--output', help='Normalyzer formatted report', required=True)
     parser.add_argument('--design', help='Sample design file', required=True)
+
+    parser.add_argument('--require_annot', help='Output only features with matched peptide', action='store_true',
+                        default=False)
 
     parser.add_argument('--delim_in', default='\t')
     parser.add_argument('--delim_out', default='\t')
