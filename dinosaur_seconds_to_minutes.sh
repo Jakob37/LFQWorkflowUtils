@@ -8,5 +8,4 @@ fi
 input=$1
 output=$2
 
-grep -v "^#" ${input} | awk -v OFS='\t' '{if (NR > 1) $3=$3/60; print}' > ${output}
-
+ grep -v "^#" ${input} | awk -v OFS='\t' '{if (NR > 1) $2=$2/60; print}' > ${output}
